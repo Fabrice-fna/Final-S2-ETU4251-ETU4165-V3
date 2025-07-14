@@ -2,39 +2,40 @@
 session_start();
 include("../inc/connexion.php");
 
-
 $id_membre = $_SESSION['id_membre'] ?? 1;
 
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id_objet'], $_POST['duree_mois'], $_POST['duree_jours'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['id_objet'], $_POST['date_retour'])) {
     $id_objet_post = (int)$_POST['id_objet'];
-    $mois = (int)$_POST['duree_mois'];
-    $jours = (int)$_POST['duree_jours'];
-    $total = $mois * 30 + $jours;
+    $date_retour_input = $_POST['date_retour'];
 
-    if ($total >= 1 && $total <= 365) {
-        $date_retour = date('Y-m-d', strtotime("+$total days"));
-        $verif = mysqli_query($conn, "SELECT * FROM emprunt WHERE id_objet = $id_objet_post AND (date_retour >= CURDATE())");
-        if (mysqli_num_rows($verif) === 0) {
-            $insert_sql = "INSERT INTO emprunt (id_objet, id_membre, date_emprunt, date_retour) 
-                           VALUES ($id_objet_post, $id_membre, CURDATE(), '$date_retour')";
-            mysqli_query($conn, $insert_sql);
-            $_SESSION['message'] = "Objet emprunté jusqu’au $date_retour.";
+    $date_auj = new DateTime();
+    $date_retour = DateTime::createFromFormat('Y-m-d', $date_retour_input);
+
+    if ($date_retour && $date_retour > $date_auj) {
+        $interval = $date_auj->diff($date_retour)->days;
+        if ($interval <= 365) {
+            $verif = mysqli_query($conn, "SELECT * FROM emprunt WHERE id_objet = $id_objet_post AND (date_retour >= CURDATE())");
+            if (mysqli_num_rows($verif) === 0) {
+                $insert_sql = "INSERT INTO emprunt (id_objet, id_membre, date_emprunt, date_retour) 
+                               VALUES ($id_objet_post, $id_membre, CURDATE(), '$date_retour_input')";
+                mysqli_query($conn, $insert_sql);
+                $_SESSION['message'] = "Objet emprunté jusqu'au $date_retour_input.";
+            } else {
+                $_SESSION['message'] = "Cet objet n'est plus disponible.";
+            }
         } else {
-            $_SESSION['message'] = "Cet objet n'est plus disponible.";
+            $_SESSION['message'] = "Durée invalide (max 365 jours).";
         }
     } else {
-        $_SESSION['message'] = "Durée invalide (1 à 365 jours).";
+        $_SESSION['message'] = "Date invalide ou antérieure à aujourd'hui.";
     }
     header("Location: " . $_SERVER['PHP_SELF']);
     exit;
 }
 
-
 $categorie = $_GET['categorie'] ?? "";
 $nom_objet = $_GET['nom_objet'] ?? "";
 $disponible = isset($_GET['disponible']);
-
 
 $sql = "SELECT o.id_objet, o.nom_objet, c.nom_categorie, e.date_retour, i.nom_image
         FROM objet o
@@ -48,7 +49,6 @@ if ($nom_objet) $conditions[] = "o.nom_objet LIKE '%" . mysqli_real_escape_strin
 if ($disponible) $conditions[] = "e.id_emprunt IS NULL";
 if ($conditions) $sql .= " WHERE " . implode(" AND ", $conditions);
 $res = mysqli_query($conn, $sql);
-
 
 $res_dispos = mysqli_query($conn, "SELECT o.id_objet, o.nom_objet FROM objet o
     LEFT JOIN emprunt e ON o.id_objet = e.id_objet AND (e.date_retour IS NULL OR e.date_retour >= CURDATE())
@@ -83,7 +83,6 @@ $disponibles = mysqli_fetch_all($res_dispos, MYSQLI_ASSOC);
         <?php unset($_SESSION['message']); ?>
     <?php endif; ?>
 
-
     <form method="GET" class="mb-4">
         <div class="row g-2 justify-content-center">
             <div class="col-auto">
@@ -108,12 +107,11 @@ $disponibles = mysqli_fetch_all($res_dispos, MYSQLI_ASSOC);
         </div>
     </form>
 
-    
     <div class="emprunt-section">
         <h4>Emprunter un objet</h4>
         <?php if (count($disponibles) > 0): ?>
             <form method="POST" class="row g-3 align-items-end justify-content-center">
-                <div class="col-md-4">
+                <div class="col-md-5">
                     <label for="id_objet" class="form-label">Objet :</label>
                     <select name="id_objet" id="id_objet" class="form-select" required>
                         <option value="" disabled selected>-- Choisir un objet --</option>
@@ -122,21 +120,9 @@ $disponibles = mysqli_fetch_all($res_dispos, MYSQLI_ASSOC);
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="col-md-3">
-                    <label for="duree_mois" class="form-label">Mois :</label>
-                    <select name="duree_mois" id="duree_mois" class="form-select">
-                        <?php for ($i = 0; $i <= 12; $i++): ?>
-                            <option value="<?= $i ?>"><?= $i ?> mois</option>
-                        <?php endfor; ?>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label for="duree_jours" class="form-label">Jours :</label>
-                    <select name="duree_jours" id="duree_jours" class="form-select">
-                        <?php for ($j = 0; $j <= 30; $j++): ?>
-                            <option value="<?= $j ?>"><?= $j ?> jour<?= $j > 1 ? 's' : '' ?></option>
-                        <?php endfor; ?>
-                    </select>
+                <div class="col-md-4">
+                    <label for="date_retour" class="form-label">Date de retour :</label>
+                    <input type="date" name="date_retour" id="date_retour" class="form-control" required min="<?= date('Y-m-d', strtotime('+1 day')) ?>" max="<?= date('Y-m-d', strtotime('+1 year')) ?>">
                 </div>
                 <div class="col-md-2">
                     <button class="btn btn-success w-100" type="submit">Emprunter</button>
@@ -147,7 +133,6 @@ $disponibles = mysqli_fetch_all($res_dispos, MYSQLI_ASSOC);
         <?php endif; ?>
     </div>
 
-    
     <div class="row">
         <?php $today = date('Y-m-d');
         while ($row = mysqli_fetch_assoc($res)) : ?>
